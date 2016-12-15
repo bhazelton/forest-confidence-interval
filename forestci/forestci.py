@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import norm
 from sklearn.ensemble.forest import _generate_sample_indices
 from .due import _due, _BibTeX
 
@@ -71,6 +72,54 @@ def _bias_correction(V_IJ, inbag, pred_centered, n_trees):
     bias_correction = n_train_samples * n_var * boot_var / n_trees
     V_IJ_unbiased = V_IJ - bias_correction
     return V_IJ_unbiased
+
+
+def gfit(X, sigma, p=2, nbin=1000, unif_fraction=0.1):
+    """
+    Fit an empirical Bayes prior in the hierarchical model
+        mu ~ G, X ~ N(mu, sigma^2)
+
+    Parameters
+    ----------
+    X: ndarray
+        A 1D array of observations
+    sigma: float
+        noise estimate on X
+    p: int
+        tuning parameter -- number of parameters used to fit G
+    nbin: int
+        tuning parameter -- number of bins used for discrete approximation
+    unif_fraction: float
+        tuning parameter -- fraction of G modeled as "slab"
+
+    Returns
+    -------
+    An array of the posterior density estimate g
+
+    Notes
+    -----
+    .. [Efron2014] B Efron. "Two modeling strategies for empirical Bayes
+        estimation." Stat. Sci., 29(2): 285–301, 2014.
+    """
+    min_x = min(min(X) - 2 * np.std(X), 0)
+    max_x = max(max(X) + 2 * np.std(X))
+    binw = (max_x - min_x) / (nbin - 1)
+    xvals = np.arange(min_x, max_x + 1, binw)
+
+    zero_idx = max(np.where(xvals <= 0)[0])
+    noise_kernel = norm().pdf(xvals / sigma) * binw / sigma
+
+    if zero_idx > 0:
+        noise_rotate = noise_kernel[list(np.arange(zero_idx, len(xvals))) +
+                                    list(np.arange(0, zero_idx))]
+    else:
+        noise_rotate = noise_kernel
+
+    XX = np.zeros((p, len(xvals)), dtype=np.float)
+    for ind, exp in enumerate(range(p)):
+        mask = np.ones_like(xvals)
+        mask[np.where(xvals <= 0)[0]] = 0
+        XX[ind, :] = np.pow(xvals, exp) * mask
 
 
 def random_forest_error(forest, inbag, X_train, X_test):
